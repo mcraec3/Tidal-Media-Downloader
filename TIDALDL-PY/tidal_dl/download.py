@@ -6,15 +6,17 @@
 @Author  :   Yaronzz
 @Version :   1.0
 @Contact :   yaronhuang@foxmail.com
-@Desc    :
+@Desc    :   
 '''
+import aigpy
+import logging
+
+from tidal_dl.paths import *
+from tidal_dl.printf import *
+from tidal_dl.decryption import *
+from tidal_dl.tidal import *
 
 from concurrent.futures import ThreadPoolExecutor
-
-from decryption import *
-from printf import *
-from tidal import *
-
 
 def __isSkip__(finalpath, url):
     if not SETTINGS.checkExist:
@@ -112,7 +114,7 @@ def downloadVideo(video: Video, album: Album = None, playlist: Playlist = None):
     try:
         stream = TIDAL_API.getVideoStreamUrl(video.id, SETTINGS.videoQuality)
         path = getVideoPath(video, album, playlist)
-
+        
         Printf.video(video, stream)
         logging.info("[DL Video] name=" + aigpy.path.getFileName(path) + "\nurl=" + stream.m3u8Url)
 
@@ -151,18 +153,26 @@ def downloadTrack(track: Track, album=None, playlist=None, userProgress=None, pa
 
         # check exist
         if __isSkip__(path, stream.url):
-            Printf.success(aigpy.path.getFileName(path) + " (skip:already exists!)")
+            Printf.success(aigpy.path.getFileName(path) + " (skip:already exists!!)")
+            # lyrics
+            try:
+                lyrics = TIDAL_API.getLyrics(track.id).subtitles
+                if SETTINGS.lyricFile:
+                    lrcPath = path.rsplit(".", 1)[0] + '.lrc'
+                    aigpy.file.write(lrcPath, lyrics, 'w')
+            except:
+                lyrics = ''
             return True, ''
 
         # download
         logging.info("[DL Track] name=" + aigpy.path.getFileName(path) + "\nurl=" + stream.url)
 
-        tool = aigpy.download.DownloadTool(path + '.part', stream.urls)
+        tool = aigpy.download.DownloadTool(path + '.part', [stream.url])
         tool.setUserProgress(userProgress)
         tool.setPartSize(partSize)
         check, err = tool.start(SETTINGS.showProgress and not SETTINGS.multiThread)
         if not check:
-            Printf.err(f"DL Track '{track.title}' failed: {str(err)}")
+            Printf.err(f"DL Track[{track.title}] failed.{str(err)}")
             return False, str(err)
 
         # encrypted -> decrypt and remove encrypted file
@@ -185,20 +195,19 @@ def downloadTrack(track: Track, album=None, playlist=None, userProgress=None, pa
 
         __setMetaData__(track, album, path, contributors, lyrics)
         Printf.success(track.title)
-
         return True, ''
     except Exception as e:
-        Printf.err(f"DL Track '{track.title}' failed: {str(e)}")
+        Printf.err(f"DL Track[{track.title}] failed.{str(e)}")
         return False, str(e)
 
 
-def downloadTracks(tracks, album: Album = None, playlist: Playlist = None):
+def downloadTracks(tracks, album: Album = None, playlist : Playlist=None):
     def __getAlbum__(item: Track):
         album = TIDAL_API.getAlbum(item.album.id)
         if SETTINGS.saveCovers and not SETTINGS.usePlaylistFolder:
             downloadCover(album)
         return album
-
+    
     if not SETTINGS.multiThread:
         for index, item in enumerate(tracks):
             itemAlbum = album
